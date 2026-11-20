@@ -8,9 +8,8 @@ const os = require('node:os');
 const ytdlp = require('./lib/ytdlp');
 const deno = require('./lib/deno');
 const pinterest = require('./lib/pinterest');
-const sniffer = require('./lib/sniffer');
 const { ProgressTracker } = require('./lib/progress');
-const { explain, isCookieError, isTransientError, isBotError, isLoginError, isSubtitleError, isUnsupportedError } = require('./lib/errors');
+const { explain, isCookieError, isTransientError, isBotError, isLoginError, isSubtitleError } = require('./lib/errors');
 const { toNetscape, hasLogin } = require('./lib/cookies');
 const { findBrowser, startBrowserLogin } = require('./lib/browserLogin');
 const { Throttle, isRateLimit, siteKey } = require('./lib/throttle');
@@ -57,44 +56,6 @@ function bootstrap() {
   const throttle = new Throttle(); // паузы для аккаунта и паузы по сайтам после 429
   const log = createLogger(path.join(app.getPath('userData'), 'logs'));
   log.info(`start MediaGrab ${app.getVersion()} electron ${process.versions.electron} ${process.platform}/${process.arch}`);
-
-  // ---------- Кэш перехваченных потоков (HLS/DASH/MP4) ----------
-  const sniffedById = new Map();
-  const sniffedByUrl = new Map();
-  const SNIFF_TTL_MS = 2 * 3600 * 1000;
-  const snifferCookiesPath = () => path.join(app.getPath('userData'), 'sniffer-cookies.txt');
-
-  function writeSnifferCookies(cookiesText) {
-    if (!cookiesText || !cookiesText.trim()) return '';
-    try {
-      const p = snifferCookiesPath();
-      fs.writeFileSync(p, cookiesText, { mode: 0o600 });
-      return p;
-    } catch {
-      return '';
-    }
-  }
-  app.on('before-quit', () => {
-    try { fs.rmSync(snifferCookiesPath(), { force: true }); } catch { /* ignore */ }
-  });
-
-  function saveSniffed(id, pageUrl, entry) {
-    const now = Date.now();
-    const record = { ...entry, ts: now };
-    if (id != null) sniffedById.set(id, record);
-    sniffedByUrl.set(pageUrl, record);
-    for (const map of [sniffedById, sniffedByUrl]) {
-      for (const [k, v] of map) {
-        if (now - v.ts > SNIFF_TTL_MS) map.delete(k);
-      }
-    }
-  }
-
-  function getSniffed(id, pageUrl) {
-    const item = (id != null && sniffedById.get(id)) || sniffedByUrl.get(pageUrl) || null;
-    if (!item || Date.now() - item.ts > SNIFF_TTL_MS) return null;
-    return item;
-  }
 
   // ---------- Эксперимент: токен подтверждения (PO Token) ----------
   let potServer = null;
@@ -160,7 +121,7 @@ function bootstrap() {
 
   /** Контекст запуска yt-dlp: ffmpeg, JS-рантаймы для YouTube и пользовательские настройки. */
   function makeCtx(opts = {}) {
-    const usePo = opts.poToken === true && !opts.sniffed && (!opts.url || isYoutubeUrl(opts.url));
+    const usePo = opts.poToken === true && (!opts.url || isYoutubeUrl(opts.url));
     return {
       ffmpegPath: ffmpegPath(),
       denoPath: denoBin,
@@ -569,70 +530,6 @@ function bootstrap() {
             if (pin) return { ok: true, info: pin };
           } catch { /* покажем ошибку yt-dlp */ }
         }
-        if (isUnsupportedError(err.message) && !isYoutubeUrl(url) && !pinterest.isPinterestUrl(url)) {
-          try {
-            const cap = await sniffer.captureStream({
-              url,
-              parent: win,
-              proxy: (opts || {}).proxy,
-              profileDir: path.join(app.getPath('userData'), 'sniffer-browser-profile'),
-              fetchFn,
-              signal: ac.signal,
-              title: t('main.sniffer_title'),
-            });
-            if (cap.aborted || cap.cancelled) {
-              return { ok: false, aborted: true, error: t('main.cancelled') };
-            }
-            if (cap.ok) {
-              const cookiesFile = writeSnifferCookies(cap.cookiesText);
-              const baseSniffOpts = {
-                ...(opts || {}),
-                url: cap.streamUrl,
-                sniffed: true,
-                headers: cap.headers,
-                cookiesFile: cookiesFile || (opts || {}).cookiesFile || '',
-                cookiesBrowser: '',
-              };
-              let impersonate = false;
-              let raw;
-              try {
-                raw = await ytdlp.fetchInfo({ bin, url: cap.streamUrl, ctx: makeCtx(baseSniffOpts), signal: ac.signal });
-              } catch (firstErr) {
-                if (firstErr && firstErr.code === 'ABORTED') throw firstErr;
-                if (/403|Cloudflare|impersonate|forbidden/i.test(String((firstErr && firstErr.message) || ''))) {
-                  impersonate = true;
-                  raw = await ytdlp.fetchInfo({
-                    bin,
-                    url: cap.streamUrl,
-                    ctx: makeCtx({ ...baseSniffOpts, impersonate: true }),
-                    signal: ac.signal,
-                  });
-                } else {
-                  throw firstErr;
-                }
-              }
-              const info = ytdlp.normalizeInfo(raw);
-              if (cap.title) info.title = cap.title;
-              if (!info.thumbnail && cap.thumbnail) info.thumbnail = cap.thumbnail;
-              try { info.site = new URL(url).hostname.replace(/^www\./, ''); } catch { /* ignore */ }
-              saveSniffed(id, url, {
-                streamUrl: cap.streamUrl,
-                headers: cap.headers,
-                cookiesFile,
-                impersonate,
-                title: info.title,
-              });
-              return { ok: true, info, sniffed: true };
-            }
-          } catch (sniffErr) {
-            if (sniffErr && sniffErr.code === 'ABORTED') {
-              return { ok: false, aborted: true, error: t('main.cancelled') };
-            }
-            const details = String((sniffErr && sniffErr.message) || sniffErr || '').slice(-1800);
-            log.warn(`sniffer failed ${url}: ${details}`);
-            return { ok: false, error: explain(details), details };
-          }
-        }
         const meta = err.meta || {};
         const prefix = meta.cookieFallback ? t('main.cookies_unreadable', { browser: (opts || {}).cookiesBrowser }) : '';
         const details = [
@@ -695,21 +592,6 @@ function bootstrap() {
    * state.cookiesRetried — уже пробовали без кук; state.attempt — номер автоповтора при сбое сети.
    */
   async function runYtDlpJob(sender, job, state = { cookiesRetried: false, attempt: 0 }) {
-    if (!job.headers) {
-      const sniffed = getSniffed(job.id, job.url);
-      if (sniffed) {
-        job = {
-          ...job,
-          url: sniffed.streamUrl,
-          headers: sniffed.headers,
-          cookiesFile: sniffed.cookiesFile || job.cookiesFile || '',
-          cookiesBrowser: '',
-          impersonate: !!sniffed.impersonate,
-          customTitle: sniffed.title,
-          sniffed: true,
-        };
-      }
-    }
     if (job.useLogin && !job.cookiesFile && isYoutubeUrl(job.url) && loginCookies()) {
       job = { ...job, cookiesFile: loginCookies(), cookiesBrowser: '' };
       state = { ...state, loginUsed: true };
@@ -738,7 +620,7 @@ function bootstrap() {
         return undefined;
       }
     }
-    if (!job.sniffed && isYoutubeUrl(job.url)) await getPo(job);
+    if (isYoutubeUrl(job.url)) await getPo(job);
     if (wasCancelled()) { emit(sender, id, { type: 'cancelled' }); return undefined; } // отменили, пока ждали токен
     return spawnJob(sender, job, state);
   }
