@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'self'; script-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MediaGrab</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="dropHint" class="drophint" hidden><span data-i18n="drop.hint"></span></div>
+  <div id="overlay" class="overlay" hidden>
+    <div class="overlay-box">
+      <div class="overlay-title" id="overlayTitle"></div>
+      <div class="tape"><div class="tape-fill" id="overlayBar"></div></div>
+      <p class="overlay-text" id="overlayText"></p>
+      <div id="overlayProxyBox" class="overlay-proxy" hidden>
+        <p class="overlay-text" data-i18n="overlay.proxy_hint"></p>
+        <input id="overlayProxy" type="text" placeholder="http://127.0.0.1:8080" spellcheck="false" aria-label="proxy">
+      </div>
+      <button id="retryBtn" class="btn primary" type="button" data-i18n="overlay.retry" hidden></button>
+    </div>
+  </div>
+
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <h1>MediaGrab</h1>
+      </div>
+
+      <div class="group">
+        <div class="group-title" data-i18n="fmt.title"></div>
+        <div class="seg" id="formatSeg" role="group">
+          <button type="button" data-v="mp4" class="on">MP4<small data-i18n="fmt.video"></small></button>
+          <button type="button" data-v="mp3">MP3<small data-i18n="fmt.audio"></small></button>
+          <button type="button" data-v="webm">WebM<small data-i18n="fmt.video"></small></button>
+          <button type="button" data-v="m4a">M4A<small data-i18n="fmt.audio"></small></button>
+          <button type="button" data-v="flac">FLAC<small data-i18n="fmt.audio"></small></button>
+        </div>
+      </div>
+
+      <div class="group">
+        <label class="group-title" for="qualitySel" data-i18n="q.title"></label>
+        <select id="qualitySel"></select>
+        <p class="hint" data-i18n="q.hint"></p>
+      </div>
+
+      <div class="group">
+        <div class="group-title" data-i18n="folder.title"></div>
+        <div class="path" id="folderPath"></div>
+        <button id="folderBtn" class="btn dark sm" type="button" data-i18n="folder.choose"></button>
+      </div>
+
+      <button id="settingsBtn" class="btn dark sm" type="button" data-i18n="adv.title"></button>
+
+      <div class="prefs">
+        <div class="pref">
+          <label class="group-title" for="themeSel" data-i18n="prefs.theme"></label>
+          <select id="themeSel">
+            <option value="auto" data-i18n="theme.auto"></option>
+            <option value="light" data-i18n="theme.light"></option>
+            <option value="dark" data-i18n="theme.dark"></option>
+          </select>
+        </div>
+        <div class="pref">
+          <label class="group-title" for="langSel" data-i18n="prefs.lang"></label>
+          <select id="langSel">
+            <option value="ru">Русский</option>
+            <option value="en">English</option>
+            <option value="uk">Українська</option>
+            <option value="de">Deutsch</option>
+            <option value="es">Español</option>
+          </select>
+        </div>
+      </div>
+
+      <ul class="sites">
+        <li><i class="dot s-youtube"></i><span data-i18n="site.youtube"></span></li>
+        <li><i class="dot s-tiktok"></i><span>TikTok</span></li>
+        <li><i class="dot s-instagram"></i><span>Instagram</span></li>
+        <li><i class="dot s-vk"></i><span data-i18n="site.vk"></span></li>
+        <li><i class="dot s-soundcloud"></i><span>SoundCloud</span></li>
+        <li><i class="dot s-pinterest"></i><span>Pinterest</span></li>
+      </ul>
+      <p class="hint keys" data-i18n="keys.hint"></p>
+    </aside>
+
+    <main class="main">
+      <div id="updateBar" class="updatebar" hidden>
+        <span id="updateText"></span>
+        <button id="updateInstallBtn" class="btn dark sm" type="button" data-i18n="upd.install"></button>
+      </div>
+
+      <section class="adder">
+        <textarea id="urlInput" rows="2" spellcheck="false" data-i18n-ph="add.placeholder"></textarea>
+        <div class="adder-actions">
+          <button id="pasteBtn" class="btn ghost" type="button" data-i18n="add.paste"></button>
+          <button id="addBtn" class="btn primary" type="button" data-i18n="add.add"></button>
+        </div>
+      </section>
+
+      <section class="queue">
+        <div class="queue-head">
+          <h2><span data-i18n="queue.title"></span> <span id="count" class="count"></span></h2>
+          <div class="qa">
+            <button id="cancelAllBtn" class="btn ghost sm" type="button" data-i18n="queue.cancelAll" hidden></button>
+            <button id="retryErrBtn" class="btn ghost sm" type="button" data-i18n="queue.retryErr" hidden></button>
+            <button id="subsBtn" class="btn ghost sm" type="button" data-i18n="btn.subs"></button>
+            <button id="historyBtn" class="btn ghost sm" type="button" data-i18n="btn.history"></button>
+            <button id="clearBtn" class="btn ghost sm" type="button" data-i18n="queue.clear"></button>
+            <button id="startAllBtn" class="btn primary" type="button" data-i18n="queue.startAll" disabled></button>
+          </div>
+        </div>
+        <div id="overall" class="overall" hidden>
+          <div class="tape"><div class="tape-fill" id="overallFill"></div></div>
+          <div class="overall-text" id="overallText"></div>
+        </div>
+        <div id="list" class="list"></div>
+        <div id="empty" class="empty">
+          <div class="empty-title" data-i18n="empty.title"></div>
+          <p data-i18n="empty.text"></p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="chooser" class="dlg">
+    <h2 id="chooserTitle"></h2>
+    <p class="dlg-note" data-i18n="chooser.note"></p>
+    <input id="chooserFind" type="text" spellcheck="false" data-i18n-ph="find.placeholder">
+    <div class="dlg-tools">
+      <button id="chooserAll" class="btn ghost sm" type="button" data-i18n="chooser.all"></button>
+      <button id="chooserNone" class="btn ghost sm" type="button" data-i18n="chooser.none"></button>
+    </div>
+    <div id="chooserList" class="dlg-list"></div>
+    <div class="dlg-actions">
+      <button id="chooserSub" class="btn ghost" type="button" data-i18n="chooser.sub"></button>
+      <button id="chooserCancel" class="btn ghost" type="button" data-i18n="btn.cancel"></button>
+      <button id="chooserAdd" class="btn primary" type="button"></button>
+    </div>
+  </dialog>
+
+  <dialog id="settings" class="dlg settings">
+    <h2 data-i18n="adv.title"></h2>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" class="tab on" data-tab="net" data-i18n="tab.net"></button>
+      <button type="button" role="tab" class="tab" data-tab="dl" data-i18n="tab.dl"></button>
+      <button type="button" role="tab" class="tab" data-tab="app" data-i18n="tab.app"></button>
+    </div>
+    <div class="panel" data-panel="net">
+      <button id="loginBtn" class="btn primary sm" type="button" data-i18n="adv.login"></button>
+      <button id="logoutBtn" class="btn ghost sm" type="button" data-i18n="adv.logout" hidden></button>
+      <p class="hint" data-i18n="adv.login_hint"></p>
+      <label class="mini" for="cookiesSel" data-i18n="adv.cookies"></label>
+      <select id="cookiesSel">
+        <option value="" data-i18n="cookies.none"></option>
+        <option value="firefox">Firefox</option>
+        <option value="file" data-i18n="cookies.file"></option>
+      </select>
+      <div class="path small" id="cookiesFile" hidden></div>
+      <p class="hint" data-i18n="adv.cookies_hint"></p>
+      <label class="mini" for="proxyInput" data-i18n="adv.proxy"></label>
+      <input id="proxyInput" type="text" placeholder="http://127.0.0.1:8080" spellcheck="false">
+      <label class="check"><input type="checkbox" id="poChk"><span data-i18n="adv.po"></span></label>
+      <p class="hint" data-i18n="adv.po_hint"></p>
+      <p class="hint" id="poStatus"></p>
+    </div>
+    <div class="panel" data-panel="dl" hidden>
+      <label class="mini" for="parSel" data-i18n="adv.parallel"></label>
+      <select id="parSel">
+        <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+      </select>
+      <label class="mini" for="nameSel" data-i18n="adv.name"></label>
+      <select id="nameSel">
+        <option value="title" data-i18n="name.title"></option>
+        <option value="uploader" data-i18n="name.uploader"></option>
+        <option value="site" data-i18n="name.site"></option>
+      </select>
+      <label class="mini" for="limitSel" data-i18n="adv.limit"></label>
+      <select id="limitSel">
+        <option value="" data-i18n="limit.none"></option>
+        <option value="500K" data-i18n="limit.500K"></option>
+        <option value="1M" data-i18n="limit.1M"></option>
+        <option value="2M" data-i18n="limit.2M"></option>
+        <option value="5M" data-i18n="limit.5M"></option>
+      </select>
+      <label class="check"><input type="checkbox" id="coverChk"><span data-i18n="adv.cover"></span></label>
+      <label class="check"><input type="checkbox" id="subsChk"><span data-i18n="adv.subs"></span></label>
+      <input id="subLangs" type="text" placeholder="ru,en" spellcheck="false" aria-label="ru,en">
+      <label class="check"><input type="checkbox" id="exactChk"><span data-i18n="adv.exact"></span></label>
+    </div>
+    <div class="panel" data-panel="app" hidden>
+      <label class="check"><input type="checkbox" id="notifyChk"><span data-i18n="adv.notify"></span></label>
+      <label class="check"><input type="checkbox" id="watchChk"><span data-i18n="adv.watch"></span></label>
+      <label class="check"><input type="checkbox" id="trayChk"><span data-i18n="adv.tray"></span></label>
+      <label class="mini" for="afterSel" data-i18n="adv.after"></label>
+      <select id="afterSel">
+        <option value="none" data-i18n="after.none"></option>
+        <option value="quit" data-i18n="after.quit"></option>
+        <option value="sleep" data-i18n="after.sleep"></option>
+        <option value="shutdown" data-i18n="after.shutdown"></option>
+      </select>
+      <p class="hint" data-i18n="adv.after_hint"></p>
+      <button id="reportBtn" class="btn ghost sm" type="button" data-i18n="adv.report"></button>
+      <button id="updateBtn" class="btn ghost sm" type="button" data-i18n="adv.update"></button>
+      <button id="appUpdateBtn" class="btn ghost sm" type="button" data-i18n="upd.check"></button>
+      <p class="hint" id="verLabel"></p>
+    </div>
+    <div class="dlg-actions"><button id="settingsClose" class="btn primary" type="button" data-i18n="history.close"></button></div>
+  </dialog>
+
+  <dialog id="afterDlg" class="dlg">
+    <h2 id="afterTitle"></h2>
+    <p class="dlg-note" id="afterText"></p>
+    <div class="dlg-actions"><button id="afterCancel" class="btn primary" type="button" data-i18n="after.cancel"></button></div>
+  </dialog>
+
+  <dialog id="subs" class="dlg">
+    <h2 data-i18n="subs.title"></h2>
+    <p class="dlg-note" data-i18n="subs.note"></p>
+    <div class="dlg-tools">
+      <input id="subsUrl" class="field" type="text" spellcheck="false" data-i18n-ph="subs.placeholder">
+      <button id="subsAdd" class="btn primary sm" type="button" data-i18n="subs.add"></button>
+    </div>
+    <div id="subsList" class="dlg-list"></div>
+    <div class="dlg-actions">
+      <button id="subsCheck" class="btn ghost" type="button" data-i18n="subs.check"></button>
+      <button id="subsClose" class="btn primary" type="button" data-i18n="history.close"></button>
+    </div>
+  </dialog>
+
+  <dialog id="history" class="dlg">
+    <h2 data-i18n="history.title"></h2>
+    <input id="historyFind" type="text" spellcheck="false" data-i18n-ph="find.placeholder">
+    <div id="historyList" class="dlg-list"></div>
+    <div class="dlg-actions">
+      <button id="historyClear" class="btn ghost" type="button" data-i18n="history.clear"></button>
+      <button id="historyClose" class="btn primary" type="button" data-i18n="history.close"></button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="i18n.js"></script>
+  <script src="i18n-more.js"></script>
+  <script src="subs-core.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
