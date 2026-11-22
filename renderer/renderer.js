@@ -324,9 +324,7 @@
     if (!settings.notify || document.hasFocus()) return;
     beep();
     try {
-      if ('Notification' in window) {
-        new Notification('MediaGrab', { body: [t('notify.done', { n: done }), err ? t('notify.errors', { n: err }) : ''].filter(Boolean).join('. ') });
-      }
+      api.notify('MediaGrab', [t('notify.done', { n: done }), err ? t('notify.errors', { n: err }) : ''].filter(Boolean).join('. '));
     } catch { /* уведомления недоступны */ }
   }
 
@@ -334,12 +332,51 @@
   const infoWaiting = [];
   let infoRunning = 0;
 
+  /** Ссылки из текста: без закрывающих знаков в конце ( ) , . ; и без дублей по адресу. */
+  function extractUrls(text) {
+    const out = [];
+    const seen = new Set();
+    for (let u of String(text || '').match(/https?:\/\/[^\s<>"']+/g) || []) {
+      for (;;) {
+        const last = u[u.length - 1];
+        if (/[.,;:!?\]}]/.test(last)) u = u.slice(0, -1);
+        else if (last === ')' && (u.match(/\(/g) || []).length < (u.match(/\)/g) || []).length) u = u.slice(0, -1);
+        else break;
+      }
+      let key = u;
+      try {
+        const x = new URL(u);
+        const host = x.hostname.replace(/^www\./, '');
+        if (host === 'youtu.be') key = `yt:${x.pathname.slice(1)}`;
+        else if (/(^|\.)youtube\.com$/.test(host) && x.pathname === '/watch' && x.searchParams.get('v')) key = `yt:${x.searchParams.get('v')}`;
+      } catch { /* оставим как есть */ }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(u);
+    }
+    return out;
+  }
+
+  function urlKey(u) {
+    try {
+      const x = new URL(u);
+      const host = x.hostname.replace(/^www\.|^m\./, '');
+      if (host === 'youtu.be') return `yt:${x.pathname.slice(1)}`;
+      if (/(^|\.)youtube\.com$/.test(host)) {
+        if (x.pathname === '/watch' && x.searchParams.get('v')) return `yt:${x.searchParams.get('v')}`;
+        const sh = x.pathname.match(/^\/shorts\/([\w-]+)/);
+        if (sh) return `yt:${sh[1]}`;
+      }
+    } catch { /* сырая строка */ }
+    return u;
+  }
+
   function addUrls(text, extra = null) {
-    const urls = [...new Set(String(text || '').match(/https?:\/\/[^\s<>"']+/g) || [])];
+    const urls = extractUrls(text);
     if (!urls.length) { toast(t('toast.no_links')); return 0; }
     let added = 0;
     for (const url of urls) {
-      if (items.some((i) => i.url === url)) continue;
+      if (items.some((i) => urlKey(i.url) === urlKey(url))) continue;
       const it = {
         id: `i${nextId++}`, url, status: 'loading', info: null, format: settings.format, quality: '',
         percent: 0, entry: 1, entries: 1, label: '', error: '', phase: 'info', filePath: null, dir: null,
@@ -418,7 +455,7 @@
     if (!queueReady) return;
     clearTimeout(queueTimer);
     queueTimer = setTimeout(() => {
-      const keep = items.filter((i) => i.status !== 'done' && /^https?:\/\//.test(i.url)).slice(0, 100)
+      const keep = items.filter((i) => i.status !== 'done' && /^https?:\/\//.test(i.url) && !(i.status === 'error' && i.phase === 'info')).slice(0, 100)
         .map((i) => ({ url: i.url, format: i.format, quality: i.quality, start: i.start || '', end: i.end || '', audioLang: i.audioLang || '', subLang: i.subLang || '' }));
       try {
         if (keep.length) localStorage.setItem(QUEUE_KEY, JSON.stringify(keep));
@@ -470,6 +507,7 @@
   async function subscribe(rawUrl) {
     const url = SubsCore.normalizeSubUrl(rawUrl);
     if (!url) { toast(t('toast.no_links')); return false; }
+    if (subsBusy) { toast(t('subs.busy')); return false; }
     if (subs.some((x) => x.url === url)) { toast(t('subs.dup')); return false; }
     if (subs.length >= SubsCore.MAX_SUBS) { toast(t('subs.limit', { n: SubsCore.MAX_SUBS })); return false; }
     subsBusy = true;
@@ -1116,7 +1154,7 @@
   bindSetting('#limitSel', 'limitRate', (el) => el.value);
   bindSetting('#coverChk', 'embedCover', (el) => el.checked);
   bindSetting('#subsChk', 'subs', (el) => el.checked);
-  bindSetting('#subLangs', 'subLangs', (el) => el.value.trim());
+  bindSetting('#subLangs', 'subLangs', (el) => el.value.replace(/[;\s]+/g, ',').replace(/,+/g, ',').replace(/^,|,$/g, ''));
   bindSetting('#notifyChk', 'notify', (el) => el.checked);
   bindSetting('#watchChk', 'watchClipboard', (el) => el.checked);
   bindSetting('#exactChk', 'exactCut', (el) => el.checked);
@@ -1155,7 +1193,7 @@
     saveSettings();
     toast(res.ok ? t('toast.po_on') : t('toast.po_failed', { e: res.error }));
   });
-  $('#proxyInput').addEventListener('change', (e) => { settings.proxy = e.target.value.trim(); saveSettings(); });
+  $('#proxyInput').addEventListener('change', (e) => { settings.proxy = e.target.value.trim(); saveSettings(); api.init({ proxy: settings.proxy }).catch(() => {}); });
   $('#themeSel').addEventListener('change', (e) => { settings.theme = e.target.value; saveSettings(); applyTheme(); });
   $('#langSel').addEventListener('change', async (e) => {
     settings.lang = e.target.value;
@@ -1236,7 +1274,7 @@
     try { text = (await api.readClipboard()) || ''; } catch { return; }
     if (!text || text === lastClip) return;
     lastClip = text;
-    const urls = (text.match(/https?:\/\/[^\s<>"']+/g) || []).filter((u) => siteOf(u).id !== 'other');
+    const urls = extractUrls(text).filter((u) => siteOf(u).id !== 'other');
     if (urls.length) addUrls(urls.join('\n'));
   });
 

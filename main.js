@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, net, clipboard, session, Tray, Menu, nativeImage, screen, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, net, clipboard, session, Tray, Menu, Notification, nativeImage, screen, safeStorage } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -150,6 +150,14 @@ function bootstrap() {
   };
   const sendStatus = (payload) => send('app:status', payload);
 
+  // Пока идёт обновление yt-dlp, новые запуски ждут: иначе exe перезаписывается во время старта
+  let updateLock = null;
+  async function withUpdateLock(fn) {
+    updateLock = (async () => { try { return await fn(); } finally { updateLock = null; } })();
+    return updateLock;
+  }
+  const waitUpdate = async () => { while (updateLock) { try { await updateLock; } catch { /* ignore */ } } };
+
   async function maybeAutoUpdate(binPath) {
     const stamp = path.join(binDir(), '.last-update-check');
     let last = 0;
@@ -157,7 +165,7 @@ function bootstrap() {
     if (Date.now() - last < 2 * 24 * 3600 * 1000) return;
     if (active.size) return; // на Windows запущенный yt-dlp.exe не перезаписать
     try {
-      await ytdlp.updateBinary(binPath);
+      await withUpdateLock(() => ytdlp.updateBinary(binPath));
       fs.writeFileSync(stamp, String(Date.now()));
     } catch { /* нет сети или нет прав — не критично */ }
   }
@@ -287,11 +295,21 @@ function bootstrap() {
     return true;
   });
 
+  handleIpc('app:notify', (_e, p) => {
+    try {
+      if (!Notification.isSupported()) return false;
+      const title = String((p && p.title) || 'MediaGrab').slice(0, 100);
+      const body = String((p && p.body) || '').slice(0, 300);
+      new Notification({ title, body }).show();
+      return true;
+    } catch { return false; }
+  });
+
   handleIpc('app:init', async (_e, opts) => {
     try {
       // прокси для первой загрузки yt-dlp и Deno (GitHub может быть недоступен напрямую)
       const proxy = opts && typeof opts.proxy === 'string' ? opts.proxy.trim() : '';
-      if (/^(https?|socks[45]?):\/\/\S+$/i.test(proxy)) await session.defaultSession.setProxy({ proxyRules: proxy });
+      if (/^(https?|socks4a?|socks5h?|socks):\/\/\S+$/i.test(proxy)) await session.defaultSession.setProxy({ proxyRules: proxy });
       else await session.defaultSession.setProxy({ mode: 'system' });
       initPromise = initPromise || init();
       const r = await initPromise;
@@ -434,7 +452,7 @@ function bootstrap() {
     try {
       if (!bin) throw new Error(t('main.not_ready'));
       if (active.size) throw new Error(t('main.update_busy'));
-      const r = await ytdlp.updateBinary(bin);
+      const r = await withUpdateLock(() => ytdlp.updateBinary(bin));
       return { ok: true, version: r.version, output: r.output };
     } catch (e) {
       return { ok: false, error: e.message || String(e) };
@@ -483,6 +501,7 @@ function bootstrap() {
    * При неудаче бросает ошибку с полем meta для технических подробностей.
    */
   async function fetchInfoSmart(url, opts, signal) {
+    await waitUpdate();
     const meta = { cookieFallback: false, cookieErr: '', altClients: false, loginUsed: false, finalOpts: opts };
     let o = { ...opts };
     for (let i = 0; i < 4; i += 1) {
@@ -592,6 +611,7 @@ function bootstrap() {
    * state.cookiesRetried — уже пробовали без кук; state.attempt — номер автоповтора при сбое сети.
    */
   async function runYtDlpJob(sender, job, state = { cookiesRetried: false, attempt: 0 }) {
+    await waitUpdate();
     if (job.useLogin && !job.cookiesFile && isYoutubeUrl(job.url) && loginCookies()) {
       job = { ...job, cookiesFile: loginCookies(), cookiesBrowser: '' };
       state = { ...state, loginUsed: true };
@@ -630,7 +650,7 @@ function bootstrap() {
       const id = job.id;
       let args;
       try {
-        args = ytdlp.buildDownloadArgs(job, { ...makeCtx(job), altClients: !!state.altClients });
+        args = ytdlp.buildDownloadArgs({ ...job, forceOverwrite: !state.attempt && !state.cookiesRetried && !state.loginUsed && !state.altClients }, { ...makeCtx(job), altClients: !!state.altClients });
       } catch (e) {
         emit(sender, id, { type: 'error', message: e.message });
         return resolve();
@@ -685,7 +705,7 @@ function bootstrap() {
           if (!src) return finish({ type: 'error', message: t('main.gif_failed', { msg: 'no file' }) });
           finished = true;
           emit(sender, id, { type: 'status', text: t('main.gif_making') });
-          const out = `${src.replace(/\.[^.\\/]+$/, '')}.gif`;
+          const out = `${src.replace(/\.[^.\\/]+$/, '').replace(/\.gif-src$/, '')}.gif`;
           active.set(id, { cancel: () => { cancelled = true; } });
           makeGif({
             ffmpeg: makeCtx(job).ffmpegPath || 'ffmpeg',

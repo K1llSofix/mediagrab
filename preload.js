@@ -11,6 +11,7 @@ const subscribe = (channel) => (cb) => {
 contextBridge.exposeInMainWorld('api', {
   enablePo: () => ipcRenderer.invoke('po:enable'),
   disablePo: () => ipcRenderer.invoke('po:disable'),
+  notify: (title, body) => ipcRenderer.invoke('app:notify', { title, body }),
   armAfter: (kind) => ipcRenderer.invoke('app:afterArm', kind),
   disarmAfter: () => ipcRenderer.invoke('app:afterDisarm'),
   afterAction: (kind) => ipcRenderer.invoke('app:after', kind),

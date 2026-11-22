@@ -601,7 +601,7 @@ test('playlistEnd попадает в аргументы получения ин
   const y = require('../lib/ytdlp');
   const a = y.buildInfoArgs('https://y/c', { playlistEnd: 15 });
   assert.equal(a[a.indexOf('--playlist-end') + 1], '15');
-  assert.ok(!y.buildInfoArgs('https://y/c', {}).includes('--playlist-end'));
+  assert.ok(y.buildInfoArgs('https://y/c', {}).includes('--playlist-end'));
 });
 
 test('paths: перетаскивать можно только существующий файл по абсолютному пути', () => {

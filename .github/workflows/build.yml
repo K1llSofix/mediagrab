@@ -35,6 +35,11 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm install --no-audit --no-fund
+      - name: Tag must match package.json version
+        shell: bash
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if [ "v$V" != "${GITHUB_REF_NAME}" ]; then echo "Tag ${GITHUB_REF_NAME} != package.json version v$V"; exit 1; fi
       - run: npm run ${{ matrix.script }} -- --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
